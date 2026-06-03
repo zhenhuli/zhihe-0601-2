@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能电子表格</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="toolbar">
+            <h1>智能电子表格</h1>
+            <div class="toolbar-actions">
+                <button id="btn-undo" title="撤销 (Ctrl+Z)">↶ 撤销</button>
+                <button id="btn-redo" title="重做 (Ctrl+Y)">↷ 重做</button>
+                <button id="btn-save" title="手动保存">💾 保存</button>
+                <span id="save-status" class="save-status">已保存</span>
+            </div>
+            <div class="format-toolbar">
+                <label>格式:</label>
+                <select id="cell-format">
+                    <option value="default">默认</option>
+                    <option value="number">数字 (2位小数)</option>
+                    <option value="percent">百分比</option>
+                    <option value="currency">货币 (¥)</option>
+                </select>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="selection-info">
+                    <span id="cell-address">A1</span>
+                    <input type="text" id="formula-bar" placeholder="输入值或公式 (以=开头)" />
+                </div>
+                <div id="grid-container" class="grid-container"></div>
+            </div>
+
+            <div class="right-panel">
+                <div class="panel-section">
+                    <h3>📊 分组管理</h3>
+                    <div class="group-actions">
+                        <button id="btn-group-rows">行分组</button>
+                        <button id="btn-group-cols">列分组</button>
+                        <button id="btn-ungroup">取消分组</button>
+                    </div>
+                    <div id="groups-list" class="groups-list"></div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>🏷️ 命名区域</h3>
+                    <div class="named-range-actions">
+                        <button id="btn-add-range">添加命名区域</button>
+                        <button id="btn-delete-range">删除</button>
+                    </div>
+                    <div id="named-ranges-list" class="named-ranges-list"></div>
+                </div>
+
+                <div class="panel-section debug-section">
+                    <h3>🔍 公式解析树 (调试)</h3>
+                    <div id="parse-tree" class="parse-tree">
+                        <p class="hint">选择一个包含公式的单元格查看解析树</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="status-bar">
+            <span id="status-text">就绪</span>
+            <span id="calc-status">计算状态: 空闲</span>
+        </footer>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <h3 id="modal-title">输入名称</h3>
+            <input type="text" id="modal-input" placeholder="请输入..." />
+            <div class="modal-actions">
+                <button id="modal-confirm">确定</button>
+                <button id="modal-cancel">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

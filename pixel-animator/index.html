@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Animator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1e1e2e;color:#d0d0e0;font-family:-apple-system,'Segoe UI',sans-serif;font-size:13px;display:flex;justify-content:center;min-height:100vh;overflow-y:auto}
+#app{display:flex;flex-direction:column;align-items:center;width:100%;max-width:680px;padding:8px 12px}
+#header{display:flex;align-items:center;width:100%;padding:6px 10px;background:#252540;border-radius:8px;margin-bottom:6px;gap:8px;flex-wrap:wrap}
+.title{font-size:15px;font-weight:700;color:#fff;white-space:nowrap}
+.dirty-mark{color:#ff6b6b;font-weight:700;font-size:16px}
+.header-actions{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
+#toolbar{display:flex;align-items:center;width:100%;padding:6px 10px;background:#252540;border-radius:8px;margin-bottom:6px;gap:10px;flex-wrap:wrap}
+.tool-group{display:flex;align-items:center;gap:4px}
+.tool-group .label{font-size:11px;color:#8888aa;margin-right:2px;white-space:nowrap}
+.sep{width:1px;height:24px;background:#3a3a5a;margin:0 4px}
+button{background:#2a2a45;border:1px solid #3a3a5a;color:#d0d0e0;padding:4px 9px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .15s;white-space:nowrap}
+button:hover{background:#3a3a55;border-color:#5a5a7a}
+button:active{background:#4a4a65}
+button.active{border-color:#ff6b6b;background:#3a2a35;color:#ff8a8a}
+button:disabled{opacity:.4;cursor:not-allowed}
+input[type="color"]{width:28px;height:28px;border:2px solid #3a3a5a;border-radius:4px;cursor:pointer;background:none;padding:0}
+input[type="color"]::-webkit-color-swatch-wrapper{padding:2px}
+input[type="color"]::-webkit-color-swatch{border-radius:2px;border:none}
+input[type="range"]{-webkit-appearance:none;appearance:none;height:4px;background:#3a3a5a;border-radius:2px;outline:none;cursor:pointer;vertical-align:middle}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#ff6b6b;cursor:pointer;border:none}
+.brush-btn{min-width:28px;text-align:center;padding:4px 6px}
+#canvas-wrap{display:flex;justify-content:center;margin:4px 0}
+#main-canvas{box-sizing:content-box;border:2px solid #3a3a5a;border-radius:2px;cursor:crosshair;image-rendering:pixelated}
+#controls{display:flex;align-items:center;width:100%;padding:6px 10px;background:#252540;border-radius:8px;margin-bottom:4px;gap:6px;flex-wrap:wrap}
+.frame-info{font-size:12px;color:#aaa;white-space:nowrap;min-width:50px}
+#thumb-strip{display:flex;gap:6px;width:100%;padding:8px 10px;background:#252540;border-radius:8px;overflow-x:auto;min-height:90px;align-items:flex-start}
+.thumb-container{display:flex;flex-direction:column;align-items:center;cursor:pointer;border:2px solid transparent;border-radius:4px;padding:3px;transition:border-color .15s;flex-shrink:0}
+.thumb-container:hover{border-color:#5a5a7a}
+.thumb-container.active{border-color:#ff6b6b}
+.thumb-canvas{image-rendering:pixelated;border-radius:2px;display:block}
+.thumb-label{font-size:10px;color:#8888aa;margin-top:2px}
+.onion-indicator{font-size:10px;color:#ff6b6b;margin-left:2px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <span class="title">Pixel Animator</span>
+    <span class="dirty-mark" id="dirty-mark" style="display:none">*</span>
+    <div class="header-actions">
+      <button id="btn-import">导入 JSON</button>
+      <button id="btn-export-json">导出 JSON</button>
+      <button id="btn-export-zip">导出 PNG 序列</button>
+      <button id="btn-save-png">保存帧 PNG</button>
+    </div>
+  </div>
+  <div id="toolbar">
+    <div class="tool-group">
+      <span class="label">工具</span>
+      <button class="tool-btn active" data-tool="brush">笔刷</button>
+      <button class="tool-btn" data-tool="eraser">橡皮</button>
+      <button class="tool-btn" data-tool="eyedropper">取色</button>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <span class="label">颜色</span>
+      <input type="color" id="color-picker" value="#ff0000">
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <span class="label">笔刷</span>
+      <button class="brush-btn active" data-size="1">1</button>
+      <button class="brush-btn" data-size="2">2</button>
+      <button class="brush-btn" data-size="3">3</button>
+      <button class="brush-btn" data-size="4">4</button>
+    </div>
+    <div class="sep"></div>
+    <div class="tool-group">
+      <span class="label">洋葱皮</span>
+      <button id="btn-onion">关</button>
+      <input type="range" id="onion-opacity" min="5" max="80" value="50" style="width:60px">
+      <span id="onion-opacity-label" style="font-size:11px;color:#aaa;min-width:28px">50%</span>
+    </div>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="main-canvas"></canvas>
+  </div>
+  <div id="controls">
+    <span class="frame-info" id="frame-info">帧 1/1</span>
+    <button id="btn-prev" title="上一帧">&#9664;</button>
+    <button id="btn-play" title="播放">&#9654;</button>
+    <button id="btn-stop" title="停止">&#9632;</button>
+    <button id="btn-next" title="下一帧">&#9654;&#9654;</button>
+    <div class="sep"></div>
+    <span class="label" style="font-size:11px;color:#8888aa">FPS</span>
+    <input type="range" id="fps-slider" min="5" max="24" value="12" style="width:60px">
+    <span id="fps-label" style="font-size:11px;color:#aaa;min-width:20px">12</span>
+    <div class="sep"></div>
+    <button id="btn-add-frame">+ 新帧</button>
+    <button id="btn-copy-frame">+ 复制帧</button>
+    <button id="btn-clear-frame">清除</button>
+    <button id="btn-delete-frame">删除帧</button>
+    <div class="sep"></div>
+    <button id="btn-undo" title="撤销 Ctrl+Z">撤销</button>
+    <button id="btn-redo" title="重做 Ctrl+Y">重做</button>
+  </div>
+  <div id="thumb-strip"></div>
+</div>
+<input type="file" id="file-input" accept=".json" style="display:none">
+
+<script>
+const W = 32, H = 32, CELL = 16, CANVAS_SIZE = W * CELL;
+const MAX_FRAMES = 24, MAX_UNDO = 30;
+
+let frames = [];
+let curFrame = 0;
+let color = '#ff0000';
+let brushSize = 1;
+let tool = 'brush';
+let playing = false;
+let playTimer = null;
+let fps = 12;
+let onionOn = false;
+let onionAlpha = 0.5;
+let painting = false;
+let lastPos = null;
+let undoStacks = [];
+let redoStacks = [];
+let dirty = false;
+let hoverGrid = null;
+let dpr = 1;
+
+let mainCanvas, ctx;
+let checkerImg;
+
+function createFrame() {
+    return new Uint8ClampedArray(W * H * 4);
+}
+
+function cloneFrame(f) {
+    return new Uint8ClampedArray(f);
+}
+
+function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function init() {
+    mainCanvas = document.getElementById('main-canvas');
+    dpr = window.devicePixelRatio || 1;
+    mainCanvas.width = CANVAS_SIZE * dpr;
+    mainCanvas.height = CANVAS_SIZE * dpr;
+    mainCanvas.style.width = CANVAS_SIZE + 'px';
+    mainCanvas.style.height = CANVAS_SIZE + 'px';
+    ctx = mainCanvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    buildCheckerboard();
+    frames = [createFrame()];
+    curFrame = 0;
+    undoStacks = [[]];
+    redoStacks = [[]];
+
+    setupEvents();
+    render();
+    updateUI();
+}
+
+function buildCheckerboard() {
+    const c = document.createElement('canvas');
+    c.width = CANVAS_SIZE * dpr;
+    c.height = CANVAS_SIZE * dpr;
+    const cx = c.getContext('2d');
+    cx.scale(dpr, dpr);
+    const s = CELL / 2;
+    for (let y = 0; y < CANVAS_SIZE; y += s) {
+        for (let x = 0; x < CANVAS_SIZE; x += s) {
+            const light = ((Math.floor(x / s) + Math.floor(y / s)) % 2 === 0);
+            cx.fillStyle = light ? '#e0e0e0' : '#c0c0c0';
+            cx.fillRect(x, y, s, s);
+        }
+    }
+    checkerImg = c;
+}
+
+function render() {
+    renderMain();
+    renderThumbnails();
+}
+
+function renderMain() {
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.drawImage(checkerImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    if (onionOn && !playing) {
+        if (curFrame > 0) drawOnionSkin(frames[curFrame - 1], 255, 0, 0);
+        if (curFrame < frames.length - 1) drawOnionSkin(frames[curFrame + 1], 0, 200, 255);
+    }
+
+    drawPixels(ctx, frames[curFrame]);
+    drawGrid();
+    if (hoverGrid && !playing) drawCursor(hoverGrid.x, hoverGrid.y);
+}
+
+function drawOnionSkin(frame, tintR, tintG, tintB) {
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            const srcA = frame[i + 3];
+            if (srcA === 0) continue;
+            const a = (srcA / 255) * onionAlpha;
+            ctx.fillStyle = 'rgba(' + tintR + ',' + tintG + ',' + tintB + ',' + a + ')';
+            ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+        }
+    }
+}
+
+function drawPixels(context, frame) {
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            if (frame[i + 3] === 0) continue;
+            context.fillStyle = 'rgba(' + frame[i] + ',' + frame[i + 1] + ',' + frame[i + 2] + ',' + (frame[i + 3] / 255) + ')';
+            context.fillRect(x * CELL, y * CELL, CELL, CELL);
+        }
+    }
+}
+
+function drawGrid() {
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= W; i++) {
+        const p = i * CELL + 0.5;
+        ctx.moveTo(p, 0);
+        ctx.lineTo(p, CANVAS_SIZE);
+    }
+    for (let j = 0; j <= H; j++) {
+        const p = j * CELL + 0.5;
+        ctx.moveTo(0, p);
+        ctx.lineTo(CANVAS_SIZE, p);
+    }
+    ctx.stroke();
+}
+
+function drawCursor(gx, gy) {
+    const offset = Math.floor(brushSize / 2);
+    ctx.strokeStyle = tool === 'eraser' ? 'rgba(255,100,100,0.8)' : 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    for (let dy = 0; dy < brushSize; dy++) {
+        for (let dx = 0; dx < brushSize; dx++) {
+            const cx = gx - offset + dx;
+            const cy = gy - offset + dy;
+            if (cx >= 0 && cx < W && cy >= 0 && cy < H) {
+                ctx.strokeRect(cx * CELL + 1, cy * CELL + 1, CELL - 2, CELL - 2);
+            }
+        }
+    }
+}
+
+function renderThumbnails() {
+    const strip = document.getElementById('thumb-strip');
+    const existing = strip.children;
+    while (existing.length > frames.length) strip.removeChild(strip.lastChild);
+    while (existing.length < frames.length) {
+        const container = document.createElement('div');
+        container.className = 'thumb-container';
+        const canvas = document.createElement('canvas');
+        const label = document.createElement('span');
+        label.className = 'thumb-label';
+        container.appendChild(canvas);
+        container.appendChild(label);
+        strip.appendChild(container);
+    }
+    for (let idx = 0; idx < frames.length; idx++) {
+        const container = strip.children[idx];
+        container.className = 'thumb-container' + (idx === curFrame ? ' active' : '');
+        const canvas = container.querySelector('canvas');
+        canvas.className = 'thumb-canvas';
+        canvas.width = 64 * dpr;
+        canvas.height = 64 * dpr;
+        canvas.style.width = '64px';
+        canvas.style.height = '64px';
+        const tc = canvas.getContext('2d');
+        tc.setTransform(1, 0, 0, 1, 0, 0);
+        tc.scale(dpr, dpr);
+        drawThumbFrame(tc, frames[idx]);
+        container.querySelector('.thumb-label').textContent = (idx + 1);
+        container.onclick = function () { if (!playing) selectFrame(idx); };
+    }
+}
+
+function drawThumbFrame(tc, frame) {
+    const pw = 2, ph = 2;
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const light = ((x + y) % 2 === 0);
+            tc.fillStyle = light ? '#e0e0e0' : '#c0c0c0';
+            tc.fillRect(x * pw, y * ph, pw, ph);
+        }
+    }
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            if (frame[i + 3] === 0) continue;
+            tc.fillStyle = 'rgba(' + frame[i] + ',' + frame[i + 1] + ',' + frame[i + 2] + ',' + (frame[i + 3] / 255) + ')';
+            tc.fillRect(x * pw, y * ph, pw, ph);
+        }
+    }
+}
+
+function getGridPos(e) {
+    const cw = mainCanvas.clientWidth;
+    const ch = mainCanvas.clientHeight;
+    const x = e.offsetX / cw * W;
+    const y = e.offsetY / ch * H;
+    return { x: Math.max(0, Math.min(W - 1, Math.floor(x))), y: Math.max(0, Math.min(H - 1, Math.floor(y))) };
+}
+
+function getBrushCells(gx, gy) {
+    const cells = [];
+    const offset = Math.floor(brushSize / 2);
+    for (let dy = 0; dy < brushSize; dy++) {
+        for (let dx = 0; dx < brushSize; dx++) {
+            const cx = gx - offset + dx;
+            const cy = gy - offset + dy;
+            if (cx >= 0 && cx < W && cy >= 0 && cy < H) cells.push({ x: cx, y: cy });
+        }
+    }
+    return cells;
+}
+
+function setPixel(x, y) {
+    const i = (y * W + x) * 4;
+    if (tool === 'brush') {
+        const rgb = hexToRgb(color);
+        frames[curFrame][i] = rgb[0];
+        frames[curFrame][i + 1] = rgb[1];
+        frames[curFrame][i + 2] = rgb[2];
+        frames[curFrame][i + 3] = 255;
+    } else if (tool === 'eraser') {
+        frames[curFrame][i] = 0;
+        frames[curFrame][i + 1] = 0;
+        frames[curFrame][i + 2] = 0;
+        frames[curFrame][i + 3] = 0;
+    }
+}
+
+function paintAt(gx, gy) {
+    const cells = getBrushCells(gx, gy);
+    for (const c of cells) setPixel(c.x, c.y);
+}
+
+function pickColor(gx, gy) {
+    const i = (gy * W + gx) * 4;
+    const a = frames[curFrame][i + 3];
+    if (a === 0) return;
+    const hex = rgbToHex(frames[curFrame][i], frames[curFrame][i + 1], frames[curFrame][i + 2]);
+    color = hex;
+    document.getElementById('color-picker').value = hex;
+}
+
+function bresenham(x0, y0, x1, y1, cb) {
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+        cb(x0, y0);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+function saveUndo() {
+    undoStacks[curFrame].push(cloneFrame(frames[curFrame]));
+    if (undoStacks[curFrame].length > MAX_UNDO) undoStacks[curFrame].shift();
+    redoStacks[curFrame] = [];
+}
+
+function undo() {
+    if (playing) return;
+    if (undoStacks[curFrame].length === 0) return;
+    redoStacks[curFrame].push(cloneFrame(frames[curFrame]));
+    frames[curFrame] = undoStacks[curFrame].pop();
+    markDirty();
+    render();
+}
+
+function redo() {
+    if (playing) return;
+    if (redoStacks[curFrame].length === 0) return;
+    undoStacks[curFrame].push(cloneFrame(frames[curFrame]));
+    frames[curFrame] = redoStacks[curFrame].pop();
+    markDirty();
+    render();
+}
+
+function onCanvasMouseDown(e) {
+    if (playing) return;
+    if (e.button !== 0) return;
+    const pos = getGridPos(e);
+    if (tool === 'eyedropper') {
+        pickColor(pos.x, pos.y);
+        return;
+    }
+    saveUndo();
+    painting = true;
+    lastPos = pos;
+    paintAt(pos.x, pos.y);
+    markDirty();
+    renderMain();
+}
+
+function onCanvasMouseMove(e) {
+    const pos = getGridPos(e);
+    hoverGrid = pos;
+    if (painting && (tool === 'brush' || tool === 'eraser')) {
+        if (lastPos) {
+            bresenham(lastPos.x, lastPos.y, pos.x, pos.y, function (bx, by) {
+                paintAt(bx, by);
+            });
+        } else {
+            paintAt(pos.x, pos.y);
+        }
+        lastPos = pos;
+        markDirty();
+    }
+    renderMain();
+}
+
+function onCanvasMouseUp() {
+    if (painting) {
+        painting = false;
+        lastPos = null;
+        renderThumbnails();
+    }
+}
+
+function onCanvasMouseLeave() {
+    hoverGrid = null;
+    if (painting) {
+        painting = false;
+        lastPos = null;
+        renderThumbnails();
+    }
+    renderMain();
+}
+
+function selectFrame(idx) {
+    if (idx < 0 || idx >= frames.length) return;
+    curFrame = idx;
+    render();
+    updateUI();
+}
+
+function addFrame(data) {
+    if (frames.length >= MAX_FRAMES) { alert('已达最大帧数 (' + MAX_FRAMES + ')'); return; }
+    const f = data ? cloneFrame(data) : createFrame();
+    const insertAt = curFrame + 1;
+    frames.splice(insertAt, 0, f);
+    undoStacks.splice(insertAt, 0, []);
+    redoStacks.splice(insertAt, 0, []);
+    curFrame = insertAt;
+    markDirty();
+    render();
+    updateUI();
+}
+
+function deleteFrame() {
+    if (frames.length <= 1) {
+        clearFrame();
+        return;
+    }
+    frames.splice(curFrame, 1);
+    undoStacks.splice(curFrame, 1);
+    redoStacks.splice(curFrame, 1);
+    if (curFrame >= frames.length) curFrame = frames.length - 1;
+    markDirty();
+    render();
+    updateUI();
+}
+
+function copyFrame() {
+    addFrame(frames[curFrame]);
+}
+
+function clearFrame() {
+    saveUndo();
+    frames[curFrame] = createFrame();
+    markDirty();
+    render();
+}
+
+function startPlay() {
+    if (frames.length < 2) return;
+    playing = true;
+    painting = false;
+    lastPos = null;
+    updatePlayUI();
+    playTimer = setInterval(function () {
+        curFrame = (curFrame + 1) % frames.length;
+        renderMain();
+        updateFrameInfo();
+        highlightThumb();
+    }, 1000 / fps);
+}
+
+function stopPlay() {
+    playing = false;
+    if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    updatePlayUI();
+    render();
+    updateUI();
+}
+
+function markDirty() {
+    if (!dirty) {
+        dirty = true;
+        document.getElementById('dirty-mark').style.display = 'inline';
+        document.title = 'Pixel Animator *';
+    }
+}
+
+function markClean() {
+    dirty = false;
+    document.getElementById('dirty-mark').style.display = 'none';
+    document.title = 'Pixel Animator';
+}
+
+function exportJSON() {
+    const data = {
+        version: 1,
+        width: W,
+        height: H,
+        frameCount: frames.length,
+        frames: frames.map(function (f) { return { pixels: Array.from(f) }; })
+    };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    downloadBlob(blob, 'pixel-animation.json');
+    markClean();
+}
+
+function importJSON(data) {
+    if (!data || data.version !== 1 || data.width !== W || data.height !== H) {
+        alert('无效的项目文件');
+        return;
+    }
+    if (!data.frames || !data.frames.length) {
+        alert('无效的项目文件：无帧数据');
+        return;
+    }
+    const count = Math.min(data.frames.length, MAX_FRAMES);
+    frames = [];
+    undoStacks = [];
+    redoStacks = [];
+    for (let i = 0; i < count; i++) {
+        const px = data.frames[i].pixels;
+        if (!px || px.length !== W * H * 4) {
+            alert('帧 ' + (i + 1) + ' 数据无效');
+            return;
+        }
+        frames.push(new Uint8ClampedArray(px));
+        undoStacks.push([]);
+        redoStacks.push([]);
+    }
+    curFrame = 0;
+    if (playing) stopPlay();
+    markClean();
+    render();
+    updateUI();
+}
+
+function exportPNGSequence() {
+    if (typeof JSZip === 'undefined') {
+        alert('JSZip 库未加载，请检查网络连接');
+        return;
+    }
+    const zip = new JSZip();
+    const promises = [];
+    for (let i = 0; i < frames.length; i++) {
+        const fc = createFrameCanvas(frames[i]);
+        const promise = new Promise(function (resolve) {
+            fc.toBlob(function (blob) {
+                const name = 'frame_' + String(i + 1).padStart(2, '0') + '.png';
+                zip.file(name, blob);
+                resolve();
+            }, 'image/png');
+        });
+        promises.push(promise);
+    }
+    Promise.all(promises).then(function () {
+        return zip.generateAsync({ type: 'blob' });
+    }).then(function (blob) {
+        downloadBlob(blob, 'pixel-animation-frames.zip');
+    });
+}
+
+function saveFramePNG() {
+    const fc = createFrameCanvas(frames[curFrame]);
+    fc.toBlob(function (blob) {
+        downloadBlob(blob, 'frame_' + (curFrame + 1) + '.png');
+    }, 'image/png');
+}
+
+function createFrameCanvas(frame) {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const cx = c.getContext('2d');
+    const imgData = cx.createImageData(W, H);
+    imgData.data.set(frame);
+    cx.putImageData(imgData, 0, 0);
+    return c;
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+
+function updateUI() {
+    updateFrameInfo();
+    updatePlayUI();
+    updateUndoRedoUI();
+}
+
+function updateFrameInfo() {
+    document.getElementById('frame-info').textContent = '帧 ' + (curFrame + 1) + '/' + frames.length;
+}
+
+function updatePlayUI() {
+    document.getElementById('btn-play').disabled = playing || frames.length < 2;
+    document.getElementById('btn-stop').disabled = !playing;
+    document.getElementById('btn-prev').disabled = playing;
+    document.getElementById('btn-next').disabled = playing;
+    const toolBtns = document.querySelectorAll('.tool-btn');
+    toolBtns.forEach(function (b) { b.disabled = playing; });
+    mainCanvas.style.cursor = playing ? 'default' : (tool === 'eyedropper' ? 'copy' : 'crosshair');
+}
+
+function updateUndoRedoUI() {
+    document.getElementById('btn-undo').disabled = undoStacks[curFrame].length === 0;
+    document.getElementById('btn-redo').disabled = redoStacks[curFrame].length === 0;
+}
+
+function highlightThumb() {
+    const strip = document.getElementById('thumb-strip');
+    const children = strip.children;
+    for (let i = 0; i < children.length; i++) {
+        children[i].className = 'thumb-container' + (i === curFrame ? ' active' : '');
+    }
+}
+
+function setupEvents() {
+    mainCanvas.addEventListener('mousedown', onCanvasMouseDown);
+    mainCanvas.addEventListener('mousemove', onCanvasMouseMove);
+    document.addEventListener('mouseup', onCanvasMouseUp);
+    mainCanvas.addEventListener('mouseleave', onCanvasMouseLeave);
+
+    mainCanvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    document.querySelectorAll('.tool-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            tool = btn.dataset.tool;
+            document.querySelectorAll('.tool-btn').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            mainCanvas.style.cursor = tool === 'eyedropper' ? 'copy' : 'crosshair';
+        });
+    });
+
+    document.querySelectorAll('.brush-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            brushSize = parseInt(btn.dataset.size);
+            document.querySelectorAll('.brush-btn').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+        });
+    });
+
+    document.getElementById('color-picker').addEventListener('input', function (e) {
+        color = e.target.value;
+    });
+
+    document.getElementById('btn-onion').addEventListener('click', function () {
+        onionOn = !onionOn;
+        this.textContent = onionOn ? '开' : '关';
+        if (onionOn) this.classList.add('active'); else this.classList.remove('active');
+        renderMain();
+    });
+
+    document.getElementById('onion-opacity').addEventListener('input', function (e) {
+        onionAlpha = parseInt(e.target.value) / 100;
+        document.getElementById('onion-opacity-label').textContent = e.target.value + '%';
+        renderMain();
+    });
+
+    document.getElementById('fps-slider').addEventListener('input', function (e) {
+        fps = parseInt(e.target.value);
+        document.getElementById('fps-label').textContent = fps;
+        if (playing) {
+            clearInterval(playTimer);
+            playTimer = setInterval(function () {
+                curFrame = (curFrame + 1) % frames.length;
+                renderMain();
+                updateFrameInfo();
+                highlightThumb();
+            }, 1000 / fps);
+        }
+    });
+
+    document.getElementById('btn-play').addEventListener('click', startPlay);
+    document.getElementById('btn-stop').addEventListener('click', stopPlay);
+
+    document.getElementById('btn-prev').addEventListener('click', function () {
+        if (playing) return;
+        selectFrame(curFrame - 1 < 0 ? frames.length - 1 : curFrame - 1);
+    });
+    document.getElementById('btn-next').addEventListener('click', function () {
+        if (playing) return;
+        selectFrame((curFrame + 1) % frames.length);
+    });
+
+    document.getElementById('btn-add-frame').addEventListener('click', function () { addFrame(); });
+    document.getElementById('btn-copy-frame').addEventListener('click', copyFrame);
+    document.getElementById('btn-clear-frame').addEventListener('click', clearFrame);
+    document.getElementById('btn-delete-frame').addEventListener('click', deleteFrame);
+
+    document.getElementById('btn-undo').addEventListener('click', undo);
+    document.getElementById('btn-redo').addEventListener('click', redo);
+
+    document.getElementById('btn-import').addEventListener('click', function () {
+        document.getElementById('file-input').click();
+    });
+
+    document.getElementById('file-input').addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+            try {
+                const data = JSON.parse(ev.target.result);
+                importJSON(data);
+            } catch (err) {
+                alert('导入失败：无效的 JSON 文件');
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    });
+
+    document.getElementById('btn-export-json').addEventListener('click', exportJSON);
+    document.getElementById('btn-export-zip').addEventListener('click', exportPNGSequence);
+    document.getElementById('btn-save-png').addEventListener('click', saveFramePNG);
+
+    document.addEventListener('keydown', function (e) {
+        if (e.target.tagName === 'INPUT') return;
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+        else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+        else if (e.key === 'b' || e.key === 'B') { selectTool('brush'); }
+        else if (e.key === 'e' || e.key === 'E') { selectTool('eraser'); }
+        else if (e.key === 'i' || e.key === 'I') { selectTool('eyedropper'); }
+        else if (e.key === '[') { setBrushSize(Math.max(1, brushSize - 1)); }
+        else if (e.key === ']') { setBrushSize(Math.min(4, brushSize + 1)); }
+        else if (e.key === ' ' && !playing) { e.preventDefault(); startPlay(); }
+        else if (e.key === ' ' && playing) { e.preventDefault(); stopPlay(); }
+        else if (e.key === 'ArrowLeft' && !playing) { selectFrame(curFrame - 1 < 0 ? frames.length - 1 : curFrame - 1); }
+        else if (e.key === 'ArrowRight' && !playing) { selectFrame((curFrame + 1) % frames.length); }
+    });
+
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+}
+
+function selectTool(t) {
+    tool = t;
+    document.querySelectorAll('.tool-btn').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.tool === t);
+    });
+    mainCanvas.style.cursor = t === 'eyedropper' ? 'copy' : 'crosshair';
+}
+
+function setBrushSize(s) {
+    brushSize = s;
+    document.querySelectorAll('.brush-btn').forEach(function (b) {
+        b.classList.toggle('active', parseInt(b.dataset.size) === s);
+    });
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
